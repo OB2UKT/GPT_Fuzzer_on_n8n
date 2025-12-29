@@ -1,0 +1,1183 @@
+{
+  "name": "PPHM_Develop_2",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "1eBuEECN9wnRAi3bqtK8e3GOGxZpW_jzK",
+          "mode": "list",
+          "cachedResultName": "GPTFuzzer.csv",
+          "cachedResultUrl": "https://drive.google.com/file/d/1eBuEECN9wnRAi3bqtK8e3GOGxZpW_jzK/view?usp=drivesdk"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "35840db5-107a-4354-8e3b-76f540052371",
+      "name": "Download file GPTFuzzer",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Zm4wbzNzTrjQcyE6",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "982a1d39-4159-4681-a7a1-dc1bc6c77880",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(i => ({ json: { seed_id: i.json.id } }));"
+      },
+      "id": "af0787dc-fc4c-4000-b922-3e225f0e154f",
+      "name": "Build Upsert Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "id",
+              "field2": "seed_id"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8bd2af16-ab6f-4c3b-849d-dac380e4255b",
+      "name": "Merge Seeds+Stats",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        1120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "XXX/rest/v1/mcts_stats?on_conflict=seed_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "XXXX"
+            },
+            {
+              "name": "Authorization",
+              "value": "XXXX"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "seed_id",
+              "value": "={{$json.seed_id}}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        16,
+        768
+      ],
+      "id": "71bd38c2-9489-4ef0-965f-0d9b697431a6",
+      "name": "Upsert Stats"
+    },
+    {
+      "parameters": {
+        "url": "XXX",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "XXXX"
+            },
+            {
+              "name": "Authorization",
+              "value": "XXXX"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -896,
+        768
+      ],
+      "id": "900820e8-74fc-4dba-948b-4da8ec3ad357",
+      "name": "Fetch Seeds"
+    },
+    {
+      "parameters": {
+        "url": "XXXX",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "XXX"
+            },
+            {
+              "name": "Authorization",
+              "value": "XXX"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -896,
+        1408
+      ],
+      "id": "7d9493b9-394b-4883-998d-bbe434e9ede4",
+      "name": "Fetch Stats"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Tham số MCTS\nconst ratio = Number($env.MCTS_RATIO ?? 0.5);  // hệ số exploration\nconst alpha = Number($env.MCTS_ALPHA ?? 0.1);  // xác suất dừng\n\n\nconst rows = $input.all().map(i => i.json);\n\n\nconst candidates = rows.filter(r => r.id != null && r.text);\n\n\nif (candidates.length === 0) {\n  throw new Error('No seeds available for MCTS-Explore.');\n}\n\n\nconst byId = new Map();\nfor (const r of candidates) byId.set(r.id, r);\n\nconst children = new Map();\nfor (const r of candidates) {\n  const pid = r.parent_id;\n  if (pid == null) continue;\n  if (!children.has(pid)) children.set(pid, []);\n  children.get(pid).push(r);\n}\n\n// 3) Root = seed không có parent\nconst roots = candidates.filter(r => r.parent_id == null);\nif (roots.length === 0) {\n  throw new Error('No root seeds found for MCTS-Explore.');\n}\n\n// 4) step ~ tổng visit + 1\nconst N = candidates.reduce((s, r) => s + (r.n || 0), 0) + 1;\n\nfunction ucbScore(node) {\n  const n = node.n || 0;\n  const mean = node.q || 0;\n  const expl = Math.sqrt(2 * Math.log(N) / (n + 0.01));\n  return mean + ratio * expl;\n}\n\n// 5) Chọn root tốt nhất theo UCB\nlet cur = roots[0];\nlet bestScore = -Infinity;\nfor (const r of roots) {\n  const s = ucbScore(r);\n  if (s > bestScore) {\n    bestScore = s;\n    cur = r;\n  }\n}\n\nconst path = [cur];\n\n// 6) Duyệt xuống con theo UCB, dừng với xác suất alpha\nwhile (true) {\n  const childs = children.get(cur.id) || [];\n  if (childs.length === 0) break;\n  if (Math.random() < alpha) break;\n\n  let bestChild = childs[0];\n  let bestChildScore = -Infinity;\n  for (const c of childs) {\n    const s = ucbScore(c);\n    if (s > bestChildScore) {\n      bestChildScore = s;\n      bestChild = c;\n    }\n  }\n  cur = bestChild;\n  path.push(cur);\n}\n\n\n// 7) Random secondary seed, né primary\nconst secondaryCandidates = candidates.filter(r => r.id !== cur.id);\nlet secondary = null;\n\nif (secondaryCandidates.length > 0) {\n  const idx = Math.floor(Math.random() * secondaryCandidates.length);\n  secondary = secondaryCandidates[idx];\n}\n\n\nreturn [{\n  json: {\n   \n    primary_id: cur.id,\n    primary_text: cur.text,\n    primary_depth: cur.depth,\n    path_ids: path.map(p => p.id),\n\n    secondary_id: secondary ? secondary.id : null,\n    secondary_text: secondary ? secondary.text : null\n  }\n}];\n"
+      },
+      "id": "aa0b0e8e-8c8b-4d3a-9849-01d8ae153f10",
+      "name": "Select MCTS-Explore",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        1120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.mutator_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "seed",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "mode",
+              "value": "={{ $json.mutator_method }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        1360
+      ],
+      "id": "3fa20468-fc6d-44d2-90e6-ea45601dbcfb",
+      "name": "Connect_Mutator_Model"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://plantless-maia-censurably.ngrok-free.dev/predict",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer dummy-key"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "answer",
+              "value": "={{ $json.results[0].answer }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3584,
+        1504
+      ],
+      "id": "948edac4-743b-4510-bfef-2b980509779b",
+      "name": "Connect_Oracle_Model"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        240,
+        192
+      ],
+      "id": "342148e7-ab1f-481d-8b9f-cecd1110ebad",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "xxxx/rest/v1/seeds?on_conflict=id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "xxxxx"
+            },
+            {
+              "name": "Authorization",
+              "value": "xxxxx"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "330c8720-21ce-4346-92e7-75d9ff54f074",
+      "name": "Push_Initial_Seed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "xxxx/rest/v1/critical_question?on_conflict=question_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "xxxx"
+            },
+            {
+              "name": "Authorization",
+              "value": "xxxx"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "question_id",
+              "value": "={{ $json.index }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        192
+      ],
+      "id": "33829146-cc6d-4767-9916-35b7fd90f9f4",
+      "name": "Push_Critical_Questions",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "https://drive.google.com/file/d/1O1aC_TUSbWQF5dhbHlxefO88p87Ugy98/view?usp=sharing",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        0,
+        192
+      ],
+      "id": "2f436cf7-f7d3-4d8d-a5c2-4fbac2946754",
+      "name": "Download file Critical Question",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "Zm4wbzNzTrjQcyE6",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "XXXX/critical_question?select=question_id,text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "XXXX"
+            },
+            {
+              "name": "Authorization",
+              "value": "XXXX"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1808,
+        1648
+      ],
+      "id": "5b69947c-b45b-4a43-8337-1960447eddda",
+      "name": "Fetch_Critical_Question1"
+    },
+    {
+      "parameters": {},
+      "id": "337824a0-7821-4b06-bc94-4c0a2adb4246",
+      "name": "Append input",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        1504
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://plantless-maia-censurably.ngrok-free.dev/target",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer dummy-key"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{$json[\"prompt\"]}}"
+            },
+            {
+              "name": "question_id",
+              "value": "={{ $json.question_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 100000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3040,
+        1504
+      ],
+      "id": "5099cdf5-c899-4f61-9459-f1309079fd60",
+      "name": "Connect_Target_Model",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const baseUrl = \"https://phytosociologically-terse-denna.ngrok-free.dev\";\n\nconst methods = [\"generate\", \"crossover\", \"expand\", \"shorten\", \"rephrase\"];\n\n\nconst items = $input.all();\n\nreturn items.map(item => {\n  const r = item.json;\n  const seedText = r.text;  \n\n\n  const method = methods[Math.floor(Math.random() * methods.length)];\n\n  let path = \"\";\n  let body = {};\n\n  if (method === \"generate\") {\n    path = \"/generate\";\n    body = {\n      seed: seedText,\n      num_mutations: 5,\n    };\n  } else if (method === \"crossover\") {\n    path = \"/crossover\";\n    body = {\n      seed1: seedText,\n     \n      seed2: seedText,\n    };\n  } else if (method === \"expand\") {\n    path = \"/expand\";\n    body = {\n      seed: seedText,\n    };\n  } else if (method === \"shorten\") {\n    path = \"/shorten\";\n    body = {\n      seed: seedText,\n    };\n  } else if (method === \"rephrase\") {\n    path = \"/rephrase\";\n    body = {\n      seed: seedText,\n    };\n  }\n\n  return {\n    json: {\n      ...r,\n      mutator_method: method,\n      mutator_url: baseUrl + path\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        1504
+      ],
+      "id": "80d9b843-56a5-4ac7-a3f9-7266f7b52433",
+      "name": "Chosse Mutator Material"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.mutator_method }}",
+                    "rightValue": "=crossover",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "550ecc22-4779-4b9f-92bc-2b24cd1d3c7d"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Crossover"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "87a41b9a-5b6c-466f-9ec8-9153dac433c8",
+                    "leftValue": "={{ $json.mutator_method }}",
+                    "rightValue": "crossover",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Not Crossover"
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        848,
+        1504
+      ],
+      "id": "bde66094-121a-4a48-bf18-4fdf0cc46e33",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const r = item.json;\n\n  const seed1 = $input.first().json.primary_text;  \n  const seed2 = $input.first().json.secondary_text;    \n\n  const combined = `Seed 1:\n====Template 1 begins====\n${seed1}\n====Template 1 ends====\n\nSeed 2:\n====Template 2 begins====\n${seed2}\n====Template 2 ends====`;\n\n  return {\n    json: {\n      ...r,\n      text: combined,                 \n      mutator_url: $input.first().json.mutator_url,\n    }\n  };\n});\n"
+      },
+      "id": "a5326cf9-5e40-4f0b-a87d-ef7986404d1d",
+      "name": "Combine Seeds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1360
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const r = item.json;\n  return {\n    json: {\n      mutator_method: r.mutator_method,\n      seed_id: r.primary_id,\n      text: r.primary_text,\n      mutator_url : $input.first().json.mutator_url\n    }\n  };\n});\n"
+      },
+      "id": "771302f2-9943-4594-a011-78f6b0d9a8b5",
+      "name": "Remove Seed 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1648
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst meta = items[0].json;\n\n\nlet oracleObj = items.find(i => Array.isArray(i.json.results))?.json;\n\nif (!oracleObj || !Array.isArray(oracleObj.results) || oracleObj.results.length === 0) {\n  throw new Error('Không tìm thấy results[] trong input của Process Reward');\n}\n\nconst res = oracleObj.results[0];  \n\n\nconst mutatorObj = items.find(i =>\n  typeof i.json.model === 'string' &&\n  Object.prototype.hasOwnProperty.call(i.json, 'response')\n)?.json || {};\n\nconst expandObj = items.find(i =>\n  i?.json?.mode === \"expand\" &&\n  Object.prototype.hasOwnProperty.call(i.json, \"response\")\n)?.json || {};\n\nconst mutModel =\n  mutatorObj?.model ??\n  $json?.[1]?.mode ??\n  expandObj?.mode ??\n  \"unknown\";\n\nconst mutResponse =\n  mutatorObj?.response ??\n  $json?.[1]?.response ??\n  expandObj?.response ??\n  \"unknown\";\n\n// ====== PHẦN TÍNH TOÁN REWARD ======\n\nconst primaryId   = meta.primary_id;\nconst secondaryId = meta.secondary_id ?? null;\nconst label       = res.label;\nconst answer      = res.text;\n\nconst success     = (label === 1);\nconst succNum     = success ? 1 : 0;\nconst numQuestions = 1;\nconst numPrompts   = 1;\nconst leafDepth    = meta.primary_depth ?? 0;\n\nconst pathIds = [primaryId];\n\nreturn [{\n  json: {\n   \n    p_path_ids:      pathIds,\n    p_succ_num:      succNum,\n    p_num_questions: numQuestions,\n    p_num_prompts:   numPrompts,\n    p_leaf_depth:    leafDepth,\n\n  \n    success,\n    primary_id:      primaryId,\n    secondary_id:    secondaryId,\n    benign_score:    res.benign_score,\n    unsafe_score:    res.unsafe_score,\n    oracle_label:    label,\n\n   \n    model:           mutModel,\n    prompt:          mutResponse,\n    answer:          answer,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4448,
+        1664
+      ],
+      "id": "af8472f7-41db-4ae5-92bd-205d88d94c84",
+      "name": "Process Reward"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();  \n\nconst templateItem = allItems.find(\n  i => typeof i.json.response === 'string'\n); \n\nif (!templateItem){\n  throw new Error ('Error')\n}\n\nlet templateRaw = String(templateItem.json.response||'')\nlet template = templateRaw\n.replace(/Template\\s+\\d+\\s+begins:\\s*/i, '')\n.replace(/Template\\s+\\d+\\s+ends\\./i, '')\n.replace(/Template\\s+\\d+\\s+begins:\\s*/i, '')\n.replace(/Template\\s+\\s+begins:\\s*/i, '')\n.replace('====Template 1 & 2 Crossover====', '')\n.trim();\n\nconst questions = allItems\n.filter(i=> typeof i.json.text==='string')\n.map(i=>({\n  id:i.json.question_id,\n  text: String(i.json.text), \n}))\n.filter(q=>q.text.length>0); \n\nconst idx = Math.floor(Math.random() * questions.length);\nconst chosen = questions[idx];\n\nlet prompt;\nif (template.includes('[INSERT PROMPT HERE]')) {\n  prompt = template.replace('[INSERT PROMPT HERE]', chosen.text);\n} else {\n  prompt = `${template}\\n\\nFirst question: ${chosen.text}`;\n}\n\nlet mode = $input.first().json.model ;  \nreturn [\n  {\n    json: {\n      prompt,                    \n      question_id: chosen.id,\n      mode\n    }\n  }\n];\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2624,
+        1504
+      ],
+      "id": "df8f3da2-1956-4abf-9989-bc900c268cdb",
+      "name": "Parse Output"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "xxxx/rest/v1/rpc/mcts_backprop",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "XXXX"
+            },
+            {
+              "name": "Authorization",
+              "value": "XXXX"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation, resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_path_ids",
+              "value": "={{ $json.p_path_ids }}"
+            },
+            {
+              "name": "p_succ_num",
+              "value": "={{ $json.p_succ_num }}"
+            },
+            {
+              "name": "p_num_questions",
+              "value": "={{ $json.p_num_questions }}"
+            },
+            {
+              "name": "p_num_prompts",
+              "value": "={{ $json.p_num_prompts }}"
+            },
+            {
+              "name": "p_mutator_methods",
+              "value": "={{ [$json.model] }}"
+            },
+            {
+              "name": "p_answers",
+              "value": "={{ [$json.answer] }}"
+            },
+            {
+              "name": "p_child_text",
+              "value": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4848,
+        1664
+      ],
+      "id": "1b152e2b-e80f-46f1-abaa-842ef149d72a",
+      "name": "mcts_backprop"
+    },
+    {
+      "parameters": {},
+      "id": "367ae7d6-98b6-45c2-9d40-4259224c1879",
+      "name": "Append input2",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        4048,
+        1136
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1984,
+        1120
+      ],
+      "id": "21e6d37a-b73d-4671-be3d-c9bf33432b35",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_ITERS = 100; // Điều chỉnh số vòng lặp\n\nconst items = [];\nfor (let i = 0; i < MAX_ITERS; i++) {\n  items.push({ iteration: i });\n}\n\nreturn items.map(x => ({ json: x }));\n"
+      },
+      "id": "d960180c-05ae-434e-84a1-8c85f412b99a",
+      "name": "Loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        1120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1408,
+        1120
+      ],
+      "id": "caab8b5f-6025-4007-a71b-d3be84e0358f",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "#hehehe"
+      },
+      "id": "e93471d6-0392-469d-8e49-fdbab357e21c",
+      "name": "Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        432
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "id": "208942e8-197b-4332-ad88-ac283c4403bd",
+      "name": "Append input1",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        1120
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "## Tải lại, cập nhật và lựa chọn seed từ kho seed",
+        "height": 848,
+        "width": 1712
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1472,
+        768
+      ],
+      "typeVersion": 1,
+      "id": "2d956e2a-e027-4370-87a8-d167a0805410",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Lựa chọn toán tử đột biến, xử lí và đưa vào mutator model ",
+        "height": 560,
+        "width": 1920
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        432,
+        1264
+      ],
+      "typeVersion": 1,
+      "id": "f970edd6-2f61-4040-b812-3fb63fde6c77",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Chuẩn hóa dữ liệu và đưa vào Target model ",
+        "height": 368,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2544,
+        1376
+      ],
+      "typeVersion": 1,
+      "id": "4bcdd352-2ab7-4b6c-8e96-2f7f889e7b36",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Đánh giá và thực hiện cập nhật chỉ số seed (có thể là seed nếu thành công)",
+        "height": 528,
+        "width": 1600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3408,
+        1376
+      ],
+      "typeVersion": 1,
+      "id": "45de3255-92a7-45f3-8c96-05c48dd58c98",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Download file GPTFuzzer": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Push_Initial_Seed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Upsert Body": {
+      "main": [
+        [
+          {
+            "node": "Upsert Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Seeds+Stats": {
+      "main": [
+        [
+          {
+            "node": "Select MCTS-Explore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Seeds": {
+      "main": [
+        [
+          {
+            "node": "Merge Seeds+Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Stats": {
+      "main": [
+        [
+          {
+            "node": "Merge Seeds+Stats",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Select MCTS-Explore": {
+      "main": [
+        [
+          {
+            "node": "Chosse Mutator Material",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append input1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connect_Mutator_Model": {
+      "main": [
+        [
+          {
+            "node": "Append input",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append input1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Connect_Oracle_Model": {
+      "main": [
+        [
+          {
+            "node": "Append input2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "Push_Critical_Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file Critical Question": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch_Critical_Question1": {
+      "main": [
+        [
+          {
+            "node": "Append input",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Append input": {
+      "main": [
+        [
+          {
+            "node": "Parse Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connect_Target_Model": {
+      "main": [
+        [
+          {
+            "node": "Connect_Oracle_Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chosse Mutator Material": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Combine Seeds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Remove Seed 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Seeds": {
+      "main": [
+        [
+          {
+            "node": "Fetch_Critical_Question1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Connect_Mutator_Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Seed 2": {
+      "main": [
+        [
+          {
+            "node": "Connect_Mutator_Model",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch_Critical_Question1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Reward": {
+      "main": [
+        [
+          {
+            "node": "mcts_backprop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Output": {
+      "main": [
+        [
+          {
+            "node": "Connect_Target_Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append input2": {
+      "main": [
+        [
+          {
+            "node": "Process Reward",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Seeds",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mcts_backprop": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append input1": {
+      "main": [
+        [
+          {
+            "node": "Append input2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "bbca15b2-16a5-4711-be76-291c1cc04024",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5229ad676c3a8d293c6db345f673ae85f2faeec97332d940e6b8ecea4c050d50"
+  },
+  "id": "AH3iMjoTRsWwAkSK",
+  "tags": []
+}
